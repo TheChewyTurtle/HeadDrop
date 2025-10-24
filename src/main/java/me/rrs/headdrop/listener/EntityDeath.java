@@ -196,11 +196,19 @@ public class EntityDeath implements Listener {
     }
 
     protected void handleEntityDrop(EntityDeathEvent event, String entityType, Supplier<ItemStack> itemSupplier) {
-        float baseChance = config.getFloat(entityType + ".Chance");
+        String configKey = entityType + ".Chance";
+        double baseChanceDouble = config.getDouble(configKey, 5.0);
+        float baseChance = (float) baseChanceDouble;
         float lootBonus = (float) ActionContext.getLootBonus();
 
         float totalChance = Math.min(baseChance + lootBonus, 100.0F);
         float randomValue = ThreadLocalRandom.current().nextFloat() * 100.0F;
+
+        // Debug logging
+        if (config.getBoolean("Config.Debug", false)) {
+            HeadDrop.getInstance().getLogger().info(String.format("[DEBUG] %s: configKey='%s', raw=%.2f, base=%.2f, bonus=%.2f, total=%.2f, roll=%.2f, willDrop=%b",
+                entityType, configKey, baseChanceDouble, baseChance, lootBonus, totalChance, randomValue, randomValue <= totalChance));
+        }
 
         if (randomValue > totalChance) {
             return;
@@ -254,30 +262,7 @@ public class EntityDeath implements Listener {
                 handleEntityDrop(event, "PLAYER", () -> SkullCreator.createSkullWithName(event.getEntity().getName()));
             });
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
-        try {
-            entityActions.put(EntityType.CREEPER, event -> {
-                event.getDrops().removeIf(head -> head.getType() == Material.CREEPER_HEAD);
-                handleEntityDrop(event, "CREEPER", () -> new ItemStack(Material.CREEPER_HEAD));
-            });
-        }catch (NoSuchFieldError | IllegalArgumentException ignored){}
-        try {
-            entityActions.put(EntityType.SKELETON, event -> {
-                event.getDrops().removeIf(head -> head.getType() == Material.SKELETON_SKULL);
-                handleEntityDrop(event, "SKELETON", () -> new ItemStack(Material.SKELETON_SKULL));
-            });
-        }catch (NoSuchFieldError | IllegalArgumentException ignored){}
-        try {
-            entityActions.put(EntityType.WITHER_SKELETON, event -> {
-                event.getDrops().removeIf(head -> head.getType() == Material.WITHER_SKELETON_SKULL);
-                handleEntityDrop(event, "WITHER_SKELETON", () -> new ItemStack(Material.WITHER_SKELETON_SKULL));
-            });
-        }catch (NoSuchFieldError | IllegalArgumentException ignored){}
-        try {
-            entityActions.put(EntityType.ZOMBIE, event -> {
-                event.getDrops().removeIf(head -> head.getType() == Material.ZOMBIE_HEAD);
-                handleEntityDrop(event, "ZOMBIE", () -> new ItemStack(Material.ZOMBIE_HEAD));
-            });
-        }catch (NoSuchFieldError | IllegalArgumentException ignored){}
+        // Vanilla mob heads (CREEPER, SKELETON, ZOMBIE, WITHER_SKELETON) use default Minecraft behavior
         try {
             entityActions.put(EntityType.BEE, event -> handleEntityDrop(event, "BEE",
                     () -> {
@@ -290,7 +275,21 @@ public class EntityDeath implements Listener {
             entityActions.put(EntityType.PANDA, event -> handleEntityDrop(event, "PANDA",
                     () -> {
                         Panda panda = (Panda) event.getEntity();
-                        return panda.getMainGene() == Panda.Gene.BROWN ? EntityHead.PANDA_BROWN.getSkull() : EntityHead.PANDA.getSkull();
+                        String gene = panda.getMainGene().toString().toLowerCase();
+                        if (gene.contains("brown")) {
+                            return EntityHead.PANDA_BROWN.getSkull();
+                        } else if (gene.contains("lazy")) {
+                            return EntityHead.PANDA_LAZY.getSkull();
+                        } else if (gene.contains("worried")) {
+                            return EntityHead.PANDA_WORRIED.getSkull();
+                        } else if (gene.contains("playful")) {
+                            return EntityHead.PANDA_PLAYFUL.getSkull();
+                        } else if (gene.contains("weak")) {
+                            return EntityHead.PANDA_WEAK.getSkull();
+                        } else if (gene.contains("aggressive")) {
+                            return EntityHead.PANDA_AGGRESSIVE.getSkull();
+                        }
+                        return EntityHead.PANDA.getSkull();
                     }));
         } catch (NoSuchFieldError | IllegalArgumentException ignored) {}
 
@@ -362,10 +361,10 @@ public class EntityDeath implements Listener {
                     () -> {
                         TraderLlama traderLlama = (TraderLlama) event.getEntity();
                         return switch (traderLlama.getColor()) {
-                            case BROWN -> EntityHead.LLAMA_BROWN.getSkull();
-                            case GRAY -> EntityHead.LLAMA_GRAY.getSkull();
-                            case CREAMY -> EntityHead.LLAMA_CREAMY.getSkull();
-                            case WHITE -> EntityHead.LLAMA_WHITE.getSkull();
+                            case BROWN -> EntityHead.TRADER_LLAMA_BROWN.getSkull();
+                            case GRAY -> EntityHead.TRADER_LLAMA_GRAY.getSkull();
+                            case CREAMY -> EntityHead.TRADER_LLAMA_CREAMY.getSkull();
+                            case WHITE -> EntityHead.TRADER_LLAMA_WHITE.getSkull();
                         };
                     }));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
@@ -479,7 +478,32 @@ public class EntityDeath implements Listener {
             entityActions.put(EntityType.WOLF, event -> handleEntityDrop(event, "WOLF",
                     () -> {
                         Wolf wolf = (Wolf) event.getEntity();
-                        String variant = wolf.getVariant().toString().toUpperCase().replace("MINECRAFT:", "");
+                        // Extract variant name from CraftVariant string
+                        // Format: CraftVariant{holder=Reference{ResourceKey[minecraft:wolf_variant / minecraft:spotted]=...}}
+                        String variantRaw = wolf.getVariant().toString();
+                        if (config.getBoolean("Config.Debug", false)) {
+                            HeadDrop.getInstance().getLogger().info("WOLF VARIANT RAW: " + variantRaw);
+                        }
+                        String variant = "PALE"; // default
+
+                        // Look for " / minecraft:" to find the variant name after the slash
+                        if (variantRaw.contains(" / minecraft:")) {
+                            int start = variantRaw.indexOf(" / minecraft:") + 13; // Length of " / minecraft:"
+                            int end = variantRaw.indexOf("]", start);
+                            if (end > start) {
+                                variant = variantRaw.substring(start, end).toUpperCase();
+                            }
+                        } else if (variantRaw.contains(":")) {
+                            // Fallback: just look for any content after last colon
+                            int start = variantRaw.lastIndexOf(":") + 1;
+                            int end = variantRaw.indexOf("]", start);
+                            if (end > start) {
+                                variant = variantRaw.substring(start, end).toUpperCase();
+                            }
+                        }
+                        if (config.getBoolean("Config.Debug", false)) {
+                            HeadDrop.getInstance().getLogger().info("WOLF VARIANT EXTRACTED: " + variant + " | isAngry: " + wolf.isAngry());
+                        }
                         switch (variant) {
                             case "ASHEN" -> {
                                 if (wolf.isAngry()) {
@@ -581,13 +605,15 @@ public class EntityDeath implements Listener {
                     () -> {
                         try {
                             Chicken chicken = (Chicken) event.getEntity();
-                            return switch (chicken.getVariant().toString()) {
-                                case "COLD" -> EntityHead.CHICKEN_COLD.getSkull();
-                                case "WARM" -> EntityHead.CHICKEN_WARM.getSkull();
-                                case "TEMPERATE" -> EntityHead.CHICKEN_TEMPERATE.getSkull();
-                                default -> throw new IllegalStateException("Unexpected value: " + chicken.getVariant());
-                            };
-                        } catch (NoSuchMethodError | IllegalArgumentException e) {
+                            String variantRaw = chicken.getVariant().toString();
+                            if (variantRaw.contains("cold")) {
+                                return EntityHead.CHICKEN_COLD.getSkull();
+                            } else if (variantRaw.contains("warm")) {
+                                return EntityHead.CHICKEN_WARM.getSkull();
+                            } else {
+                                return EntityHead.CHICKEN_TEMPERATE.getSkull();
+                            }
+                        } catch (Exception e) {
                             return EntityHead.CHICKEN_TEMPERATE.getSkull();
                         }
                     }));
@@ -597,14 +623,18 @@ public class EntityDeath implements Listener {
                     () -> {
                         try {
                             Cow cow = (Cow) event.getEntity();
-                            return switch (cow.getVariant().toString()) {
-                                case "COLD" -> EntityHead.COW_COLD.getSkull();
-                                case "WARM" -> EntityHead.COW_WARM.getSkull();
-                                case "TEMPERATE" -> EntityHead.COW_TEMPERATE.getSkull();
-                                default ->
-                                        throw new IllegalStateException("Unexpected value: " + cow.getVariant());
-                            };
-                        } catch (NoSuchMethodError | IllegalArgumentException e) {
+                            // Use reflection to call getVariant() since it may not exist in all versions
+                            Object variant = cow.getClass().getMethod("getVariant").invoke(cow);
+                            String variantRaw = variant.toString();
+                            if (variantRaw.contains("cold") || variantRaw.contains("COLD")) {
+                                return EntityHead.COW_COLD.getSkull();
+                            } else if (variantRaw.contains("warm") || variantRaw.contains("WARM")) {
+                                return EntityHead.COW_WARM.getSkull();
+                            } else {
+                                return EntityHead.COW_TEMPERATE.getSkull();
+                            }
+                        } catch (Exception e) {
+                            // cow.getVariant() doesn't exist in this Folia version
                             return EntityHead.COW_TEMPERATE.getSkull();
                         }
                     }));
@@ -614,13 +644,15 @@ public class EntityDeath implements Listener {
                     () -> {
                         try {
                             Pig pig = (Pig) event.getEntity();
-                            return switch (pig.getVariant().toString()){
-                                case "COLD" -> EntityHead.PIG_COLD.getSkull();
-                                case "WARM" -> EntityHead.PIG_WARM.getSkull();
-                                case "TEMPERATE" -> EntityHead.PIG_TEMPERATE.getSkull();
-                                default -> throw new IllegalStateException("Unexpected value: " + pig.getVariant());
-                            };
-                        } catch (NoSuchMethodError | IllegalArgumentException e) {
+                            String variantRaw = pig.getVariant().toString();
+                            if (variantRaw.contains("cold")) {
+                                return EntityHead.PIG_COLD.getSkull();
+                            } else if (variantRaw.contains("warm")) {
+                                return EntityHead.PIG_WARM.getSkull();
+                            } else {
+                                return EntityHead.PIG_TEMPERATE.getSkull();
+                            }
+                        } catch (Exception e) {
                             return EntityHead.PIG_TEMPERATE.getSkull();
                         }
                     }));

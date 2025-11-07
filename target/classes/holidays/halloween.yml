@@ -1,0 +1,52 @@
+# Halloween Holiday Configuration
+# Maps entity types to their Halloween (pumpkin-themed) head variants
+# Active from October 1st through October 31st
+
+# Mob Head Mappings
+# Format: ENTITY_TYPE: ENTITY_HEAD_ENUM_NAME
+# Only mobs listed here will drop Halloween variants
+# All other mobs will drop their normal heads
+
+Mobs:
+  WITCH: WITCH_HALLOWEEN              # Pumpkin Witch head
+  GUARDIAN: GUARDIAN_HALLOWEEN        # Pumpkin Guardian head
+  CAT: CAT_HALLOWEEN                  # Pumpkin Cat head
+  FROG: FROG_HALLOWEEN                # Frog with pumpkin head
+  HAPPY_GHAST: GHAST_HALLOWEEN        # Happy pumpkin Ghast head
+  GHAST: GHAST_SCREAMING_HALLOWEEN    # Screaming pumpkin Ghast head
+  SLIME: SLIME_HALLOWEEN              # Pumpkin Slime head
+  POLAR_BEAR: POLAR_BEAR_HALLOWEEN    # Bear with pumpkin head
+  SPIDER: SPIDER_HALLOWEEN            # Pumpkin Spider head
+  AXOLOTL: AXOLOTL_HALLOWEEN          # Pumpkin Axolotl head
+  MAGMA_CUBE: MAGMA_CUBE_HALLOWEEN    # Ghost Slime head
+  GLOW_SQUID: GLOW_SQUID_HALLOWEEN    # Ghost Glow Squid head
+  SHULKER: SHULKER_HALLOWEEN          # Trick or Treat Basket (Shulker) head
+  PANDA: PANDA_BLUE_HALLOWEEN         # Gummy Bear heads (gene-specific colors handled in code)
+  BAT: BAT_HALLOWEEN                  # Trick or Treat Basket (Bat) head
+  ALLAY: ALLAY_HALLOWEEN              # Trick or Treat Basket (Allay) head
+  BEE: BEE_HALLOWEEN                  # Trick or Treat Basket (Bee) head
+  BLAZE: BLAZE_HALLOWEEN              # Trick or Treat Basket (Blaze) head
+  CHICKEN: CHICKEN_HALLOWEEN          # Trick or Treat Basket (Chicken) head
+  COD: COD_HALLOWEEN                  # Trick or Treat Basket (Cod) head
+  BOGGED: BOGGED_HALLOWEEN            # Sugar Skull head
+  PUFFERFISH: PUFFERFISH_HALLOWEEN    # Strawberry Chocolate Pufferfish head
+  RABBIT: RABBIT_HALLOWEEN            # Chocolate Bunny head (all variants + killer rabbit handled in code)
+  VEX: VEX_HALLOWEEN                  # Trick or Treat Basket (Angry Vex) head
+  TURTLE: TURTLE_HALLOWEEN            # Trick or Treat Basket (Turtle) head
+  PHANTOM: PHANTOM_HALLOWEEN          # Trick or Treat Basket (Phantom) head
+  MOOSHROOM: MOOSHROOM_RED_HALLOWEEN  # Trick or Treat Basket Mooshroom (color variants handled in code)
+  ENDERMITE: ENDERMITE_HALLOWEEN      # Trick or Treat Basket (Endermite) head
+
+# Notes:
+# - Entity types must match Bukkit EntityType enum names exactly
+# - Head names must match EntityHead enum values in EntityHead.java
+# - Drop chances and other settings remain the same as configured in config.yml
+# - 30 mob types will drop Halloween variants during October
+# - All other mobs (zombies, skeletons, etc.) will drop their normal heads
+# - PANDA uses gene-specific colors: Normal=Blue, Brown=Green, Lazy=Red, Weak=Yellow, others=Blue
+# - MOOSHROOM uses color variants: Brown=Brown Basket, Red=Red Basket (handled in code)
+# - RABBIT: All variants including killer rabbit get Chocolate Bunny or Killer Basket (handled in code)
+#
+# Removed mobs (don't work):
+# - CREEPER: Uses vanilla Minecraft behavior, cannot be overridden
+# - WARDEN: Texture rendering issues in current Minecraft versions

@@ -7,7 +7,6 @@ import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
-import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
@@ -53,10 +52,10 @@ public class ItemUtils {
         }
 
         rawLore.forEach(lore -> {
-            if (!lore.equalsIgnoreCase("")) {
+            // Skip empty lines and {DATE} placeholder entirely
+            if (!lore.equalsIgnoreCase("") && !lore.contains("{DATE}")) {
                 lore = lore
                         .replace("{KILLER}", killer != null ? killer.getName() : "Unknown")
-                        .replace("{DATE}", LocalDate.now().toString())
                         .replace("{WEAPON}", killer != null ? killer.getInventory().getItemInMainHand().getType().toString() : "Unknown");
                 if (Bukkit.getPluginManager().isPluginEnabled("PlaceholderAPI")) {
                     lore = killer != null ? PlaceholderAPI.setPlaceholders(killer, lore) : PlaceholderAPI.setPlaceholders(null, lore);

@@ -44,6 +44,22 @@ public class HeadDrop extends JavaPlugin {
     private Database database;
     public Database getDatabase() { return database; }
 
+    private me.rrs.headdrop.util.HolidayManager holidayManager;
+    public me.rrs.headdrop.util.HolidayManager getHolidayManager() { return holidayManager; }
+
+    // Admin test mode for 100% drop rates
+    public enum ForceMode {
+        OFF,    // Normal drop rates
+        ADMIN,  // 100% for ops/admins only
+        ALL     // 100% for everyone
+    }
+    private ForceMode forceMode = ForceMode.OFF;
+    public ForceMode getForceMode() { return forceMode; }
+    public void setForceMode(ForceMode mode) {
+        this.forceMode = mode;
+        logInfo("Force mode set to: " + mode);
+    }
+
     // Lifecycle methods
     @Override
     public void onLoad() {
@@ -57,6 +73,7 @@ public class HeadDrop extends JavaPlugin {
     public void onEnable() {
         displayStartupMessage();
         setupMetrics();
+        initializeHolidayManager();
         registerComponents();
         startUpdateChecker();
         startWebServer();
@@ -110,6 +127,11 @@ public class HeadDrop extends JavaPlugin {
             new WorldGuardSupport();
         } catch (NoClassDefFoundError ignored) {
         }
+    }
+
+    private void initializeHolidayManager() {
+        holidayManager = new me.rrs.headdrop.util.HolidayManager(this);
+        // HolidayManager now logs its own status during initialization
     }
 
     // region Component Registration

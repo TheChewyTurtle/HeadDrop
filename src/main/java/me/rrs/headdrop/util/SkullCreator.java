@@ -23,6 +23,13 @@ public class SkullCreator {
 
 	public static ItemStack createSkullWithName(String name) {
 		ItemStack skull = createSkull();
+
+		// Null check - if name is null, return blank skull and log error
+		if (name == null) {
+			Bukkit.getLogger().severe("[HeadDrop] Failed to create player head: Player name is null!");
+			return skull;
+		}
+
 		return itemWithName(skull, name);
 	}
 
@@ -35,9 +42,25 @@ public class SkullCreator {
 		notNull(item, "item");
 		notNull(name, "name");
 
+		// Additional null/empty check for name
+		if (name.trim().isEmpty()) {
+			Bukkit.getLogger().severe("[HeadDrop] Failed to create player head: Player name is empty!");
+			return item;
+		}
+
 		SkullMeta meta = (SkullMeta) item.getItemMeta();
-		meta.setOwningPlayer(Bukkit.getOfflinePlayer(name));
-		item.setItemMeta(meta);
+		if (meta == null) {
+			Bukkit.getLogger().severe("[HeadDrop] Failed to create player head: ItemMeta is null!");
+			return item;
+		}
+
+		try {
+			meta.setOwningPlayer(Bukkit.getOfflinePlayer(name));
+			item.setItemMeta(meta);
+		} catch (Exception e) {
+			Bukkit.getLogger().severe("[HeadDrop] Failed to set player head owner for player '" + name + "': " + e.getMessage());
+			e.printStackTrace();
+		}
 
 		return item;
 	}

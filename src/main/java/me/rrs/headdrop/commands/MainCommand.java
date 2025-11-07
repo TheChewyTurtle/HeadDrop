@@ -41,6 +41,9 @@ public class MainCommand implements CommandExecutor, TabCompleter {
                 case "gui":
                     openGUI(sender);
                     break;
+                case "admin":
+                    handleAdminCommand(sender, args);
+                    break;
             }
         }
         return true;
@@ -157,13 +160,173 @@ public class MainCommand implements CommandExecutor, TabCompleter {
         }
     }
 
+    private void handleAdminCommand(CommandSender sender, String[] args) {
+        // Check permission
+        if (!sender.hasPermission("headdrop.admin") && !sender.isOp()) {
+            sender.sendMessage(miniMessage.deserialize("<red>[HeadDrop]</red> <reset>You don't have permission to use this command."));
+            return;
+        }
+
+        if (args.length < 2) {
+            sender.sendMessage(miniMessage.deserialize("<gold>[HeadDrop Admin]</gold> <reset>Usage: /headdrop admin <subcommand>"));
+            sender.sendMessage(miniMessage.deserialize("<aqua>  - forcemode <admin|all|off></aqua> <gray>- Set 100% drop rate mode</gray>"));
+            sender.sendMessage(miniMessage.deserialize("<aqua>  - holiday <check|force|clear></aqua> <gray>- Manage holiday system</gray>"));
+            return;
+        }
+
+        switch (args[1].toLowerCase()) {
+            case "forcemode":
+                handleForceModeCommand(sender, args);
+                break;
+            case "holiday":
+                handleHolidayCommand(sender, args);
+                break;
+            default:
+                sender.sendMessage(miniMessage.deserialize("<red>[HeadDrop]</red> <reset>Unknown admin subcommand."));
+                break;
+        }
+    }
+
+    private void handleHolidayCommand(CommandSender sender, String[] args) {
+        if (args.length < 3) {
+            sender.sendMessage(miniMessage.deserialize("<gold>[HeadDrop Holiday]</gold> <reset>Current Status:"));
+
+            me.rrs.headdrop.util.HolidayManager holidayManager = HeadDrop.getInstance().getHolidayManager();
+            if (holidayManager == null) {
+                sender.sendMessage(miniMessage.deserialize("<red>  Holiday Manager: NULL (not initialized!)</red>"));
+                return;
+            }
+
+            // Force a fresh check
+            holidayManager.checkActiveHoliday();
+
+            boolean enabled = HeadDrop.getInstance().getConfiguration().getBoolean("Holidays.Enable", false);
+            sender.sendMessage(miniMessage.deserialize("  <yellow>Enabled:</yellow> " + (enabled ? "<green>YES" : "<red>NO")));
+
+            boolean isActive = holidayManager.isHolidayActive();
+            String activeHoliday = holidayManager.getActiveHoliday();
+            sender.sendMessage(miniMessage.deserialize("  <yellow>Active Holiday:</yellow> " +
+                (isActive ? "<green>" + activeHoliday : "<gray>None")));
+
+            sender.sendMessage(miniMessage.deserialize("  <yellow>Server Date:</yellow> <aqua>" + java.time.LocalDate.now()));
+
+            sender.sendMessage(miniMessage.deserialize("\n<yellow>Commands:</yellow>"));
+            sender.sendMessage(miniMessage.deserialize("  <white>/headdrop admin holiday check</white> <gray>- Show this status"));
+            sender.sendMessage(miniMessage.deserialize("  <white>/headdrop admin holiday recheck</white> <gray>- Force fresh date check"));
+            sender.sendMessage(miniMessage.deserialize("  <white>/headdrop admin holiday force <name></white> <gray>- Force activate a holiday"));
+            sender.sendMessage(miniMessage.deserialize("  <white>/headdrop admin holiday clear</white> <gray>- Clear forced holiday"));
+            return;
+        }
+
+        String subCommand = args[2].toLowerCase();
+        me.rrs.headdrop.util.HolidayManager holidayManager = HeadDrop.getInstance().getHolidayManager();
+
+        switch (subCommand) {
+            case "check":
+                handleHolidayCommand(sender, new String[]{args[0], args[1]}); // Recurse with no subcommand
+                break;
+            case "recheck":
+                sender.sendMessage(miniMessage.deserialize("<yellow>[HeadDrop]</yellow> <reset>Forcing fresh holiday check..."));
+                holidayManager.checkActiveHoliday(true); // Force recheck
+                sender.sendMessage(miniMessage.deserialize("<green>[HeadDrop]</green> <reset>Holiday check complete! Check console for detailed logs."));
+                // Show the result
+                handleHolidayCommand(sender, new String[]{args[0], args[1]});
+                break;
+            case "force":
+                if (args.length < 4) {
+                    sender.sendMessage(miniMessage.deserialize("<red>[HeadDrop]</red> <reset>Usage: /headdrop admin holiday force <holiday-name>"));
+                    sender.sendMessage(miniMessage.deserialize("<gray>Example: /headdrop admin holiday force Halloween</gray>"));
+                    return;
+                }
+                String holidayName = args[3];
+                holidayManager.forceHoliday(holidayName);
+                sender.sendMessage(miniMessage.deserialize("<green>[HeadDrop]</green> <reset>Forced holiday: <gold>" + holidayName + "</gold>"));
+                sender.sendMessage(miniMessage.deserialize("<yellow>Note:</yellow> <gray>This overrides date checking for testing purposes.</gray>"));
+                break;
+            case "clear":
+                holidayManager.clearForcedHoliday();
+                sender.sendMessage(miniMessage.deserialize("<green>[HeadDrop]</green> <reset>Cleared forced holiday. Using date-based detection."));
+                break;
+            default:
+                sender.sendMessage(miniMessage.deserialize("<red>[HeadDrop]</red> <reset>Unknown holiday subcommand. Use: check, recheck, force, or clear"));
+                break;
+        }
+    }
+
+    private void handleForceModeCommand(CommandSender sender, String[] args) {
+        if (args.length < 3) {
+            HeadDrop.ForceMode currentMode = HeadDrop.getInstance().getForceMode();
+            sender.sendMessage(miniMessage.deserialize("<gold>[HeadDrop]</gold> <reset>Current force mode: <aqua>" + currentMode + "</aqua>"));
+            sender.sendMessage(miniMessage.deserialize("<yellow>Usage:</yellow> <white>/headdrop admin forcemode <admin|all|off></white>"));
+            sender.sendMessage(miniMessage.deserialize("  <aqua>admin</aqua> <gray>- 100% drop rate for ops/admins only</gray>"));
+            sender.sendMessage(miniMessage.deserialize("  <aqua>all</aqua> <gray>- 100% drop rate for everyone</gray>"));
+            sender.sendMessage(miniMessage.deserialize("  <aqua>off</aqua> <gray>- Normal drop rates</gray>"));
+            return;
+        }
+
+        String modeArg = args[2].toLowerCase();
+        HeadDrop.ForceMode newMode;
+
+        switch (modeArg) {
+            case "admin":
+                newMode = HeadDrop.ForceMode.ADMIN;
+                HeadDrop.getInstance().setForceMode(newMode);
+                sender.sendMessage(miniMessage.deserialize("<green>[HeadDrop]</green> <reset>Force mode set to <gold>ADMIN</gold>. Ops/admins now have 100% drop rate!"));
+                break;
+            case "all":
+                newMode = HeadDrop.ForceMode.ALL;
+                HeadDrop.getInstance().setForceMode(newMode);
+                sender.sendMessage(miniMessage.deserialize("<green>[HeadDrop]</green> <reset>Force mode set to <gold>ALL</gold>. Everyone now has 100% drop rate!"));
+                break;
+            case "off":
+                newMode = HeadDrop.ForceMode.OFF;
+                HeadDrop.getInstance().setForceMode(newMode);
+                sender.sendMessage(miniMessage.deserialize("<green>[HeadDrop]</green> <reset>Force mode <gold>disabled</gold>. Normal drop rates restored."));
+                break;
+            default:
+                sender.sendMessage(miniMessage.deserialize("<red>[HeadDrop]</red> <reset>Invalid mode. Use: admin, all, or off"));
+                break;
+        }
+    }
+
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command cmd, String alias, String[] args) {
 
-        if (cmd.getName().equals("headdrop") && args.length ==1){
-            return Arrays.asList("help", "reload", "leaderboard", "gui");
+        if (!cmd.getName().equals("headdrop")) {
+            return Collections.emptyList();
         }
+
+        if (args.length == 1) {
+            List<String> completions = new ArrayList<>(Arrays.asList("help", "reload", "leaderboard", "gui"));
+            if (sender.hasPermission("headdrop.admin") || sender.isOp()) {
+                completions.add("admin");
+            }
+            return completions;
+        }
+
+        if (args.length == 2 && args[0].equalsIgnoreCase("admin")) {
+            if (sender.hasPermission("headdrop.admin") || sender.isOp()) {
+                return Arrays.asList("forcemode", "holiday");
+            }
+        }
+
+        if (args.length == 3 && args[0].equalsIgnoreCase("admin")) {
+            if (sender.hasPermission("headdrop.admin") || sender.isOp()) {
+                if (args[1].equalsIgnoreCase("forcemode")) {
+                    return Arrays.asList("admin", "all", "off");
+                } else if (args[1].equalsIgnoreCase("holiday")) {
+                    return Arrays.asList("check", "recheck", "force", "clear");
+                }
+            }
+        }
+
+        if (args.length == 4 && args[0].equalsIgnoreCase("admin") && args[1].equalsIgnoreCase("holiday") && args[2].equalsIgnoreCase("force")) {
+            if (sender.hasPermission("headdrop.admin") || sender.isOp()) {
+                return Collections.singletonList("Halloween");
+            }
+        }
+
         return Collections.emptyList();
     }
 }

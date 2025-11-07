@@ -2,7 +2,7 @@
 # For bug report or suggestion, join https://discord.gg/fV4P2yMSgR
 
 Config:
-  Version: ${project.version} # Version of the config. don't change this
+  Version: 5.4.5 # Version of the config. don't change this
   Require-Killer-Player: true # Need to be killed by a player to drop head
   Enable-Looting: false # Enable looting enchant buff
   Baby-HeadDrop: false # Baby mobs will drop heads too

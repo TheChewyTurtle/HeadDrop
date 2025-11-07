@@ -8,6 +8,7 @@ import me.rrs.headdrop.api.HeadDropEvent;
 import me.rrs.headdrop.database.EntityHead;
 import me.rrs.headdrop.hook.WorldGuardSupport;
 import me.rrs.headdrop.util.Embed;
+import me.rrs.headdrop.util.HolidayManager;
 import me.rrs.headdrop.util.ItemUtils;
 import me.rrs.headdrop.util.SkullCreator;
 import org.bukkit.Bukkit;
@@ -36,6 +37,7 @@ public class EntityDeath implements Listener {
     private final List<String> loreList;
     private final Set<UUID> spawnerSpawnedMobs = new HashSet<>();
     private final boolean worldGuardEnabled;
+    private HolidayManager holidayManager;
 
     private static final Enchantment LOOTING_ENCHANTMENT =
             Enchantment.LOOTING != null ? Enchantment.LOOTING :
@@ -43,9 +45,41 @@ public class EntityDeath implements Listener {
 
     public EntityDeath() {
         this.loreList = config.getStringList("Lores");
+        this.holidayManager = HeadDrop.getInstance().getHolidayManager();
         populateEntityActions();
         this.worldGuardEnabled = Bukkit.getPluginManager().isPluginEnabled("WorldGuard");
         HeadDropAPI.integrateWithEntityDeath(this);
+    }
+
+    /**
+     * Wraps a head supplier to check for active holidays and return holiday variant if available
+     */
+    private Supplier<ItemStack> wrapWithHolidayCheck(EntityType entityType, Supplier<ItemStack> defaultSupplier) {
+        return () -> {
+            if (holidayManager != null && holidayManager.isHolidayActive()) {
+                // Get the default head first
+                EntityHead defaultHead = getEntityHeadFromSupplier(defaultSupplier);
+
+                // Check if there's a holiday variant
+                EntityHead holidayHead = holidayManager.getHolidayHead(entityType, defaultHead);
+
+                // If a holiday head was found, use it; otherwise use default
+                if (holidayHead != null && holidayHead != defaultHead) {
+                    return holidayHead.getSkull();
+                }
+            }
+            return defaultSupplier.get();
+        };
+    }
+
+    /**
+     * Helper method to extract EntityHead from a supplier (for holiday checking)
+     * Returns null if the supplier doesn't provide an EntityHead
+     */
+    private EntityHead getEntityHeadFromSupplier(Supplier<ItemStack> supplier) {
+        // This is a workaround since we can't easily extract the EntityHead from lambda
+        // We'll return null and let HolidayManager handle it
+        return null;
     }
 
     private void updateDatabase(Player player, int point) {
@@ -202,19 +236,32 @@ public class EntityDeath implements Listener {
         float lootBonus = (float) ActionContext.getLootBonus();
 
         float totalChance = Math.min(baseChance + lootBonus, 100.0F);
+
+        // Check for admin force mode
+        Player killer = event.getEntity().getKiller();
+        HeadDrop.ForceMode forceMode = HeadDrop.getInstance().getForceMode();
+        boolean forcedDrop = false;
+
+        if (forceMode == HeadDrop.ForceMode.ALL) {
+            totalChance = 100.0F;
+            forcedDrop = true;
+        } else if (forceMode == HeadDrop.ForceMode.ADMIN && killer != null && (killer.isOp() || killer.hasPermission("headdrop.admin"))) {
+            totalChance = 100.0F;
+            forcedDrop = true;
+        }
+
         float randomValue = ThreadLocalRandom.current().nextFloat() * 100.0F;
 
         // Debug logging
         if (config.getBoolean("Config.Debug", false)) {
-            HeadDrop.getInstance().getLogger().info(String.format("[DEBUG] %s: configKey='%s', raw=%.2f, base=%.2f, bonus=%.2f, total=%.2f, roll=%.2f, willDrop=%b",
-                entityType, configKey, baseChanceDouble, baseChance, lootBonus, totalChance, randomValue, randomValue <= totalChance));
+            HeadDrop.getInstance().getLogger().info(String.format("[DEBUG] %s: configKey='%s', raw=%.2f, base=%.2f, bonus=%.2f, forceMode=%s, forced=%b, total=%.2f, roll=%.2f, willDrop=%b",
+                entityType, configKey, baseChanceDouble, baseChance, lootBonus, forceMode, forcedDrop, totalChance, randomValue, randomValue <= totalChance));
         }
 
         if (randomValue > totalChance) {
             return;
         }
 
-        Player killer = event.getEntity().getKiller();
         ItemStack headItem = itemSupplier.get();
 
 
@@ -256,19 +303,16 @@ public class EntityDeath implements Listener {
     private void populateEntityActions() {
         try {
             entityActions.put(EntityType.PLAYER, event -> {
-                if (!event.getEntity().hasPermission("headdrop.player")) {
-                    return;
-                }
                 handleEntityDrop(event, "PLAYER", () -> SkullCreator.createSkullWithName(event.getEntity().getName()));
             });
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
         // Vanilla mob heads (CREEPER, SKELETON, ZOMBIE, WITHER_SKELETON) use default Minecraft behavior
         try {
             entityActions.put(EntityType.BEE, event -> handleEntityDrop(event, "BEE",
-                    () -> {
+                    wrapWithHolidayCheck(EntityType.BEE, () -> {
                         Bee bee = (Bee) event.getEntity();
                         return bee.getAnger() > 0 ? EntityHead.BEE_AWARE.getSkull() : EntityHead.BEE.getSkull();
-                    }));
+                    })));
         } catch (NoSuchFieldError | IllegalArgumentException ignored) {}
 
         try {
@@ -276,6 +320,26 @@ public class EntityDeath implements Listener {
                     () -> {
                         Panda panda = (Panda) event.getEntity();
                         String gene = panda.getMainGene().toString().toLowerCase();
+
+                        // Check for Halloween holiday - map genes to gummy bear colors
+                        if (holidayManager != null && holidayManager.isHolidayActive()) {
+                            EntityHead holidayHead = holidayManager.getHolidayHead(EntityType.PANDA, null);
+                            if (holidayHead != null) {
+                                // Map panda genes to gummy bear colors
+                                if (gene.contains("brown")) {
+                                    return EntityHead.PANDA_GREEN_HALLOWEEN.getSkull();  // Green gummy bear
+                                } else if (gene.contains("lazy")) {
+                                    return EntityHead.PANDA_RED_HALLOWEEN.getSkull();    // Red gummy bear
+                                } else if (gene.contains("weak")) {
+                                    return EntityHead.PANDA_YELLOW_HALLOWEEN.getSkull(); // Yellow gummy bear
+                                } else {
+                                    // Normal, worried, playful, aggressive get blue
+                                    return EntityHead.PANDA_BLUE_HALLOWEEN.getSkull();   // Blue gummy bear
+                                }
+                            }
+                        }
+
+                        // Non-holiday: use normal panda heads
                         if (gene.contains("brown")) {
                             return EntityHead.PANDA_BROWN.getSkull();
                         } else if (gene.contains("lazy")) {
@@ -297,6 +361,20 @@ public class EntityDeath implements Listener {
             entityActions.put(EntityType.MOOSHROOM, event -> handleEntityDrop(event, "MOOSHROOM",
                     () -> {
                         MushroomCow mushroomCow = (MushroomCow) event.getEntity();
+
+                        // Check for Halloween holiday
+                        if (holidayManager != null && holidayManager.isHolidayActive()) {
+                            EntityHead holidayHead = holidayManager.getHolidayHead(EntityType.MOOSHROOM, null);
+                            if (holidayHead != null) {
+                                // Return color-specific basket
+                                return switch (mushroomCow.getVariant()) {
+                                    case RED -> EntityHead.MOOSHROOM_RED_HALLOWEEN.getSkull();
+                                    case BROWN -> EntityHead.MOOSHROOM_BROWN_HALLOWEEN.getSkull();
+                                };
+                            }
+                        }
+
+                        // Non-holiday: use normal mooshroom variants
                         return switch (mushroomCow.getVariant()) {
                             case RED -> EntityHead.MOOSHROOM_COW_RED.getSkull();
                             case BROWN -> EntityHead.MOOSHROOM_COW_BROWN.getSkull();
@@ -392,7 +470,7 @@ public class EntityDeath implements Listener {
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
         try {
             entityActions.put(EntityType.CAT, event -> handleEntityDrop(event, "CAT",
-                    () -> {
+                    wrapWithHolidayCheck(EntityType.CAT, () -> {
                         Cat cat = (Cat) event.getEntity();
                         return switch (cat.getCatType().toString()) {
                             case "BLACK" -> EntityHead.CAT_BLACK.getSkull();
@@ -408,11 +486,11 @@ public class EntityDeath implements Listener {
                             case "WHITE" -> EntityHead.CAT_WHITE.getSkull();
                             default -> throw new IllegalStateException("Unexpected value: " + cat.getCatType());
                         };
-                    }));
+                    })));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
         try {
             entityActions.put(EntityType.AXOLOTL, event -> handleEntityDrop(event, "AXOLOTL",
-                    () -> {
+                    wrapWithHolidayCheck(EntityType.AXOLOTL, () -> {
                         Axolotl axolotl = (Axolotl) event.getEntity();
                         return switch (axolotl.getVariant()) {
                             case LUCY -> EntityHead.AXOLOTL_LUCY.getSkull();
@@ -421,11 +499,11 @@ public class EntityDeath implements Listener {
                             case CYAN -> EntityHead.AXOLOTL_CYAN.getSkull();
                             case GOLD -> EntityHead.AXOLOTL_GOLD.getSkull();
                         };
-                    }));
+                    })));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
         try {
             entityActions.put(EntityType.FROG, event -> handleEntityDrop(event, "FROG",
-                    () -> {
+                    wrapWithHolidayCheck(EntityType.FROG, () -> {
                         Frog frog = (Frog) event.getEntity();
                         return switch (frog.getVariant().toString()) {
                             case "TEMPERATE" -> EntityHead.FROG_TEMPERATE.getSkull();
@@ -433,7 +511,7 @@ public class EntityDeath implements Listener {
                             case "COLD" -> EntityHead.FROG_COLD.getSkull();
                             default -> throw new IllegalStateException("Unexpected value: " + frog.getVariant());
                         };
-                    }));
+                    })));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
         try {
             entityActions.put(EntityType.HORSE, event -> handleEntityDrop(event, "HORSE",
@@ -579,6 +657,21 @@ public class EntityDeath implements Listener {
             entityActions.put(EntityType.RABBIT, event -> handleEntityDrop(event, "RABBIT",
                     () -> {
                         Rabbit rabbit = (Rabbit) event.getEntity();
+
+                        // Check for Halloween holiday
+                        if (holidayManager != null && holidayManager.isHolidayActive()) {
+                            EntityHead holidayHead = holidayManager.getHolidayHead(EntityType.RABBIT, null);
+                            if (holidayHead != null) {
+                                // Special case: Killer Bunny gets special basket
+                                if (rabbit.getRabbitType() == Rabbit.Type.THE_KILLER_BUNNY) {
+                                    return EntityHead.KILLER_RABBIT_HALLOWEEN.getSkull();
+                                }
+                                // All other rabbits get chocolate bunny
+                                return EntityHead.RABBIT_HALLOWEEN.getSkull();
+                            }
+                        }
+
+                        // Non-holiday: use normal rabbit variants
                         return switch (rabbit.getRabbitType()) {
                             case BROWN -> EntityHead.RABBIT_BROWN.getSkull();
                             case WHITE -> EntityHead.RABBIT_WHITE.getSkull();
@@ -602,7 +695,7 @@ public class EntityDeath implements Listener {
 
         try {
             entityActions.put(EntityType.CHICKEN, event -> handleEntityDrop(event, "CHICKEN",
-                    () -> {
+                    wrapWithHolidayCheck(EntityType.CHICKEN, () -> {
                         try {
                             Chicken chicken = (Chicken) event.getEntity();
                             String variantRaw = chicken.getVariant().toString();
@@ -616,7 +709,7 @@ public class EntityDeath implements Listener {
                         } catch (Exception e) {
                             return EntityHead.CHICKEN_TEMPERATE.getSkull();
                         }
-                    }));
+                    })));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
         try {
             entityActions.put(EntityType.COW, event -> handleEntityDrop(event, "COW",
@@ -663,11 +756,13 @@ public class EntityDeath implements Listener {
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
         try {entityActions.put(EntityType.CAVE_SPIDER, event -> handleEntityDrop(event, "CAVE_SPIDER", EntityHead.CAVE_SPIDER::getSkull));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
-        try {entityActions.put(EntityType.SPIDER, event -> handleEntityDrop(event, "SPIDER", EntityHead.SPIDER::getSkull));
+        try {entityActions.put(EntityType.SPIDER, event -> handleEntityDrop(event, "SPIDER", wrapWithHolidayCheck(EntityType.SPIDER, EntityHead.SPIDER::getSkull)));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
-        try {entityActions.put(EntityType.BLAZE, event -> handleEntityDrop(event, "BLAZE", EntityHead.BLAZE::getSkull));
+        try {entityActions.put(EntityType.SLIME, event -> handleEntityDrop(event, "SLIME", wrapWithHolidayCheck(EntityType.SLIME, EntityHead.SLIME::getSkull)));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
-        try {entityActions.put(EntityType.BAT, event -> handleEntityDrop(event, "BAT", EntityHead.BAT::getSkull));
+        try {entityActions.put(EntityType.BLAZE, event -> handleEntityDrop(event, "BLAZE", wrapWithHolidayCheck(EntityType.BLAZE, EntityHead.BLAZE::getSkull)));
+        }catch (NoSuchFieldError | IllegalArgumentException ignored){}
+        try {entityActions.put(EntityType.BAT, event -> handleEntityDrop(event, "BAT", wrapWithHolidayCheck(EntityType.BAT, EntityHead.BAT::getSkull)));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
         try {entityActions.put(EntityType.ENDERMAN, event -> handleEntityDrop(event, "ENDERMAN", EntityHead.ENDERMAN::getSkull));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
@@ -677,7 +772,7 @@ public class EntityDeath implements Listener {
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
         try {entityActions.put(EntityType.IRON_GOLEM, event -> handleEntityDrop(event, "IRON_GOLEM", EntityHead.IRON_GOLEM::getSkull));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
-        try {entityActions.put(EntityType.MAGMA_CUBE, event -> handleEntityDrop(event, "MAGMA_CUBE", EntityHead.MAGMA_CUBE::getSkull));
+        try {entityActions.put(EntityType.MAGMA_CUBE, event -> handleEntityDrop(event, "MAGMA_CUBE", wrapWithHolidayCheck(EntityType.MAGMA_CUBE, EntityHead.MAGMA_CUBE::getSkull)));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
         try {entityActions.put(EntityType.OCELOT, event -> handleEntityDrop(event, "OCELOT", EntityHead.OCELOT::getSkull));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
@@ -687,25 +782,25 @@ public class EntityDeath implements Listener {
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
         try {entityActions.put(EntityType.SQUID, event -> handleEntityDrop(event, "SQUID", EntityHead.SQUID::getSkull));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
-        try {entityActions.put(EntityType.WITCH, event -> handleEntityDrop(event, "WITCH", EntityHead.WITCH::getSkull));
+        try {entityActions.put(EntityType.WITCH, event -> handleEntityDrop(event, "WITCH", wrapWithHolidayCheck(EntityType.WITCH, EntityHead.WITCH::getSkull)));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
         try {entityActions.put(EntityType.WITHER, event -> handleEntityDrop(event, "WITHER", EntityHead.WITHER::getSkull));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
         try {entityActions.put(EntityType.ZOMBIFIED_PIGLIN, event -> handleEntityDrop(event, "ZOMBIFIED_PIGLIN", EntityHead.ZOMBIFIED_PIGLIN::getSkull));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
-        try {entityActions.put(EntityType.GHAST, event -> handleEntityDrop(event, "GHAST", EntityHead.GHAST::getSkull));
+        try {entityActions.put(EntityType.GHAST, event -> handleEntityDrop(event, "GHAST", wrapWithHolidayCheck(EntityType.GHAST, EntityHead.GHAST::getSkull)));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
-        try {entityActions.put(EntityType.ENDERMITE, event -> handleEntityDrop(event, "ENDERMITE", EntityHead.ENDERMITE::getSkull));
+        try {entityActions.put(EntityType.ENDERMITE, event -> handleEntityDrop(event, "ENDERMITE", wrapWithHolidayCheck(EntityType.ENDERMITE, EntityHead.ENDERMITE::getSkull)));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
-        try {entityActions.put(EntityType.GUARDIAN, event -> handleEntityDrop(event, "GUARDIAN", EntityHead.GUARDIAN::getSkull));
+        try {entityActions.put(EntityType.GUARDIAN, event -> handleEntityDrop(event, "GUARDIAN", wrapWithHolidayCheck(EntityType.GUARDIAN, EntityHead.GUARDIAN::getSkull)));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
-        try {entityActions.put(EntityType.SHULKER, event -> handleEntityDrop(event, "SHULKER", EntityHead.SHULKER::getSkull));
+        try {entityActions.put(EntityType.SHULKER, event -> handleEntityDrop(event, "SHULKER", wrapWithHolidayCheck(EntityType.SHULKER, EntityHead.SHULKER::getSkull)));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
-        try {entityActions.put(EntityType.POLAR_BEAR, event -> handleEntityDrop(event, "POLAR_BEAR", EntityHead.POLAR_BEAR::getSkull));
+        try {entityActions.put(EntityType.POLAR_BEAR, event -> handleEntityDrop(event, "POLAR_BEAR", wrapWithHolidayCheck(EntityType.POLAR_BEAR, EntityHead.POLAR_BEAR::getSkull)));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
         try {entityActions.put(EntityType.VINDICATOR, event -> handleEntityDrop(event, "VINDICATOR", EntityHead.VINDICATOR::getSkull));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
-        try {entityActions.put(EntityType.VEX, event -> handleEntityDrop(event, "VEX", EntityHead.VEX::getSkull));
+        try {entityActions.put(EntityType.VEX, event -> handleEntityDrop(event, "VEX", wrapWithHolidayCheck(EntityType.VEX, EntityHead.VEX::getSkull)));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
         try {entityActions.put(EntityType.EVOKER, event -> handleEntityDrop(event, "EVOKER", EntityHead.EVOKER::getSkull));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
@@ -723,17 +818,17 @@ public class EntityDeath implements Listener {
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
         try {entityActions.put(EntityType.MULE, event -> handleEntityDrop(event, "MULE", EntityHead.MULE::getSkull));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
-        try {entityActions.put(EntityType.PUFFERFISH, event -> handleEntityDrop(event, "PUFFERFISH", EntityHead.PUFFERFISH::getSkull));
+        try {entityActions.put(EntityType.PUFFERFISH, event -> handleEntityDrop(event, "PUFFERFISH", wrapWithHolidayCheck(EntityType.PUFFERFISH, EntityHead.PUFFERFISH::getSkull)));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
         try {entityActions.put(EntityType.SALMON, event -> handleEntityDrop(event, "SALMON", EntityHead.SALMON::getSkull));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
-        try {entityActions.put(EntityType.COD, event -> handleEntityDrop(event, "COD", EntityHead.COD::getSkull));
+        try {entityActions.put(EntityType.COD, event -> handleEntityDrop(event, "COD", wrapWithHolidayCheck(EntityType.COD, EntityHead.COD::getSkull)));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
-        try {entityActions.put(EntityType.TURTLE, event -> handleEntityDrop(event, "TURTLE", EntityHead.TURTLE::getSkull));
+        try {entityActions.put(EntityType.TURTLE, event -> handleEntityDrop(event, "TURTLE", wrapWithHolidayCheck(EntityType.TURTLE, EntityHead.TURTLE::getSkull)));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
         try {entityActions.put(EntityType.DOLPHIN, event -> handleEntityDrop(event, "DOLPHIN", EntityHead.DOLPHIN::getSkull));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
-        try {entityActions.put(EntityType.PHANTOM, event -> handleEntityDrop(event, "PHANTOM", EntityHead.PHANTOM::getSkull));
+        try {entityActions.put(EntityType.PHANTOM, event -> handleEntityDrop(event, "PHANTOM", wrapWithHolidayCheck(EntityType.PHANTOM, EntityHead.PHANTOM::getSkull)));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
         try {entityActions.put(EntityType.DROWNED, event -> handleEntityDrop(event, "DROWNED", EntityHead.DROWNED::getSkull));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
@@ -751,11 +846,11 @@ public class EntityDeath implements Listener {
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
         try {entityActions.put(EntityType.PIGLIN_BRUTE, event -> handleEntityDrop(event, "PIGLIN_BRUTE", EntityHead.PIGLIN_BRUTE::getSkull));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
-        try {entityActions.put(EntityType.GLOW_SQUID, event -> handleEntityDrop(event, "GLOW_SQUID", EntityHead.GLOW_SQUID::getSkull));
+        try {entityActions.put(EntityType.GLOW_SQUID, event -> handleEntityDrop(event, "GLOW_SQUID", wrapWithHolidayCheck(EntityType.GLOW_SQUID, EntityHead.GLOW_SQUID::getSkull)));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
         try {entityActions.put(EntityType.GOAT, event -> handleEntityDrop(event, "GOAT", EntityHead.GOAT::getSkull));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
-        try {entityActions.put(EntityType.ALLAY, event -> handleEntityDrop(event, "ALLAY", EntityHead.ALLAY::getSkull));
+        try {entityActions.put(EntityType.ALLAY, event -> handleEntityDrop(event, "ALLAY", wrapWithHolidayCheck(EntityType.ALLAY, EntityHead.ALLAY::getSkull)));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
         try {entityActions.put(EntityType.TADPOLE, event -> handleEntityDrop(event, "TADPOLE", EntityHead.TADPOLE::getSkull));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
@@ -769,11 +864,11 @@ public class EntityDeath implements Listener {
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
         try {entityActions.put(EntityType.BREEZE, event -> handleEntityDrop(event, "BREEZE", EntityHead.BREEZE::getSkull));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
-        try {entityActions.put(EntityType.BOGGED, event -> handleEntityDrop(event, "BOGGED", EntityHead.BOGGED::getSkull));
+        try {entityActions.put(EntityType.BOGGED, event -> handleEntityDrop(event, "BOGGED", wrapWithHolidayCheck(EntityType.BOGGED, EntityHead.BOGGED::getSkull)));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
         try {entityActions.put(EntityType.valueOf("SNOWMAN"), event -> handleEntityDrop(event, "SNOW_GOLEM", EntityHead.SNOWMAN::getSkull));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
-        try {entityActions.put(EntityType.HAPPY_GHAST, event -> handleEntityDrop(event, "HAPPY_GHAST", EntityHead.HAPPY_GHAST::getSkull));
+        try {entityActions.put(EntityType.HAPPY_GHAST, event -> handleEntityDrop(event, "HAPPY_GHAST", wrapWithHolidayCheck(EntityType.HAPPY_GHAST, EntityHead.HAPPY_GHAST::getSkull)));
         }catch (NoSuchFieldError | IllegalArgumentException ignored){}
     }
 

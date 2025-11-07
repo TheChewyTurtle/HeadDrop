@@ -1,0 +1,41 @@
+# HeadDrop Holiday System Configuration
+# Configure special holiday modes where mobs drop themed heads
+# For bug reports or suggestions, join https://discord.gg/fV4P2yMSgR
+
+Holidays:
+  Enable: true  # Enable/disable the holiday system globally
+
+  # List of active holidays (must match holiday config file names)
+  List:
+    - Halloween
+
+  # Halloween Configuration
+  # October 1st through October 31st (USA Date Format: MM/DD)
+  Halloween:
+    Start-Date: "10/01"
+    End-Date: "10/31"
+    Description: "Spooky pumpkin heads for Halloween!"
+
+  # Example: Christmas Configuration (disabled by default)
+  # December 20th through December 26th
+  # Christmas:
+  #   Start-Date: "12/20"
+  #   End-Date: "12/26"
+  #   Description: "Festive holiday heads!"
+
+  # Example: Easter Configuration (disabled by default)
+  # Note: Easter dates vary each year, so you'll need to update the dates annually
+  # Easter:
+  #   Start-Date: "04/01"
+  #   End-Date: "04/07"
+  #   Description: "Colorful Easter egg heads!"
+
+# Notes:
+# - Dates are in USA format: MM/DD (Month/Day)
+# - Only mobs with holiday variants configured will drop holiday heads
+# - Other mobs will continue dropping their default heads
+# - To add a new holiday:
+#   1. Add it to the List above
+#   2. Configure the date range
+#   3. Create a holidays/holidayname.yml file with mob mappings
+# - Date ranges can span across years (e.g., 12/25 to 01/05 for Christmas/New Year)
